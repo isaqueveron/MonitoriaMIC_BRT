@@ -7,44 +7,55 @@ from trajetoriasRef import *
 tms = 0.0
 tempo_total = 120.0  
 h = 0.05             
-posicao_x = 0.0 # Inicializacao da posicao longitudinal
 
-# Instancia o modelo
+# Inicialização das coordenadas no referencial GLOBAL (Fixo no solo)
+posicao_x_global = 0.0
+posicao_y_global = 0.0
+
+# Instancia o modelo lateral
 Meu_BRT = BRT()
 
-def gerar_velocidade_longitudinal(t):
-    if t <= 30.0:
-        return (10.0 / 30.0) * t
-    elif t <= 60.0:
-        return 10.0
-    else:
-        return 20.0
-
 # --- VETORES PARA ARMAZENAR DADOS ---
-# --- VETORES PARA ARMAZENAR DADOS E PLOTAR ---
-tempovec, y_vec, y_dot_vec, psi_vec, psi_dot_vec,x_vec = [], [], [], [], [],[]
-vx_vec, delta_f_vec = [], []
+tempovec = []
+y_local_vec, y_dot_local_vec = [], []
+psi_vec, psi_dot_vec = [], []
+x_global_vec, y_global_vec = [], []
+vx_vec, delta_f_vec = [] , []
 
 # --- LOOP DE SIMULACAO ---
 while tms <= tempo_total:
-    #vx_atual = gerar_velocidade_longitudinal(tms)
-    vx_atual = 5
-    #delta_f_atual = np.deg2rad(referencia_cenario_a(tms))
-    delta_f_atual = np.deg2rad(referencia_cenario_b(tms))
+    # 1. Definir Entradas
+    vx_atual = 5.0 # Velocidade longitudinal [m/s]
+    delta_f_atual = np.deg2rad(referencia_cenario_a(tms)) # Ângulo de esterçamento [rad]
     
-    # Integracao da posicao longitudinal (X) simples
-    posicao_x += vx_atual * h
-    
-    # Execucao do passo de integracao do Modelo Lateral
+    # 2. Execução do passo de integração do Modelo Lateral (Dinâmica do Veículo)
+    # Este passo calcula as variáveis de estado: y, y_dot, psi, psi_dot
     Meu_BRT.passo(vx_atual, delta_f_atual, h)
 
-    # 3. Armazenar variaveis de estado e entradas
-    tempovec.append(tms)
-    y_vec.append(Meu_BRT.y)
-    x_vec.append(posicao_x)
-    y_dot_vec.append(Meu_BRT.y_dot)
+    # 3. CINEMÁTICA: Transformação para o Referencial Global (Inercial)
+    # Utilizamos o ângulo de guinada (psi) para rotacionar as velocidades locais
+    psi_atual = Meu_BRT.psi
+    vy_local = Meu_BRT.y_dot
     
-    # Convertendo os angulos de radianos para graus visando melhor visualizacao
+    # Projeção das velocidades locais no plano X-Y global
+    # VX_global = vx*cos(psi) - vy*sin(psi)
+    # VY_global = vx*sin(psi) + vy*cos(psi)
+    vx_global = vx_atual * np.cos(psi_atual) - vy_local * np.sin(psi_atual)
+    vy_global = vx_atual * np.sin(psi_atual) + vy_local * np.cos(psi_atual)
+    
+    # Integração das posições globais (Método de Euler)
+    posicao_x_global += vx_global * h
+    posicao_y_global += vy_global * h
+
+    # 4. Armazenar variáveis para análise
+    tempovec.append(tms)
+    x_global_vec.append(posicao_x_global)
+    y_global_vec.append(posicao_y_global)
+    
+    y_local_vec.append(Meu_BRT.y)
+    y_dot_local_vec.append(Meu_BRT.y_dot)
+    
+    # Convertendo radianos para graus para os gráficos de estado
     psi_vec.append(np.rad2deg(Meu_BRT.psi))
     psi_dot_vec.append(np.rad2deg(Meu_BRT.psi_dot))
     
@@ -54,58 +65,60 @@ while tms <= tempo_total:
     tms += h
 
 # -------------------------------------------------------------------------------------------
-# ===================== PLOTS ===============================================================
+# ===================== PLOTS DE ESTADO (DINÂMICA) =========================================
 # -------------------------------------------------------------------------------------------
 
 plt.figure(figsize=(12, 8))
 
-# Plot 1: Erro Lateral / Deslocamento
+# Subplot 1: Erro Lateral Local
 plt.subplot(2, 2, 1)
-plt.plot(tempovec, y_vec, label='Erro Lateral y(t)', color='blue', linewidth=2)
-plt.plot(tempovec, y_dot_vec, label='Velocidade Lateral y_dot(t)', color='turquoise', linestyle='--')
-plt.title('Deslocamento Lateral do BRT')
+plt.plot(tempovec, y_local_vec, label='Desloc. Lateral Local y(t)', color='blue')
+plt.title('Dinâmica Lateral Relativa')
 plt.xlabel('Tempo [s]')
-plt.ylabel('[m] / [m/s]')
+plt.ylabel('[m]')
 plt.grid(True)
 plt.legend()
 
-# Plot 2: Angulo e Taxa de Guinada
+# Subplot 2: Ângulo de Guinada
 plt.subplot(2, 2, 2)
-plt.plot(tempovec, psi_vec, label='Ang. Guinada psi(t)', color='purple', linewidth=2)
-plt.plot(tempovec, psi_dot_vec, label='Taxa Guinada psi_dot(t)', color='magenta', linestyle='--')
-plt.title('Dinamica de Rotacao (Guinada)')
+plt.plot(tempovec, psi_vec, label='$\psi$ (Guinada)', color='purple')
+plt.title('Ângulo de Orientação (Yaw)')
 plt.xlabel('Tempo [s]')
-plt.ylabel('[Graus] / [Graus/s]')
+plt.ylabel('[Graus]')
 plt.grid(True)
 plt.legend()
 
-# Plot 3: Velocidade Longitudinal
+# Subplot 3: Velocidade
 plt.subplot(2, 2, 3)
-plt.plot(tempovec, vx_vec, label='Velocidade Longitudinal vx(t)', color='green', linewidth=2)
-plt.title('Perfil de Velocidade')
+plt.plot(tempovec, vx_vec, label='$V_x$ Longitudinal', color='green')
+plt.title('Velocidade do BRT')
 plt.xlabel('Tempo [s]')
-plt.ylabel('Velocidade [m/s]')
+plt.ylabel('[m/s]')
 plt.grid(True)
 plt.legend()
 
-# Plot 4: Entrada de Direcao
+# Subplot 4: Entrada de Esterçamento
 plt.subplot(2, 2, 4)
-plt.plot(tempovec, delta_f_vec, label='Guinada Volante delta_f(t)', color='red', linewidth=2)
-plt.title('Sinal de Entrada de Direcao (Malha Aberta)')
+plt.plot(tempovec, delta_f_vec, label='$\delta_f$ (Volante)', color='red')
+plt.title('Comando de Direção')
 plt.xlabel('Tempo [s]')
-plt.ylabel('Graus [deg]')
+plt.ylabel('[Graus]')
 plt.grid(True)
-plt.legend()
-
-plt.figure(figsize=(12, 8))
-
-# Plot 1: Trajetoria no Plano (X vs Y)
-plt.plot(x_vec, y_vec, color='black', label='Trajetoria do BRT')
-plt.title('Posicao do BRT no Plano (Trajetoria)')
-plt.xlabel('Posicao Longitudinal X [m]')
-plt.ylabel('Deslocamento Lateral Y [m]')
-plt.grid(True, linestyle='--')
 plt.legend()
 
 plt.tight_layout()
+
+# -------------------------------------------------------------------------------------------
+# ===================== PLOT DA TRAJETÓRIA GLOBAL (CARTESIANO) ==============================
+# -------------------------------------------------------------------------------------------
+
+plt.figure(figsize=(10, 6))
+plt.plot(x_global_vec, y_global_vec, color='black', linewidth=2, label='Rastro do Veículo')
+plt.title('Trajetória do BRT no Referencial Fixo (Plano XY)')
+plt.xlabel('X Global [m]')
+plt.ylabel('Y Global [m]')
+plt.axis('equal') # Mantém a proporção 1:1 entre os eixos
+plt.grid(True, linestyle='--')
+plt.legend()
+
 plt.show()

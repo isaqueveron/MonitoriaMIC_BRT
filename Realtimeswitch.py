@@ -4,81 +4,98 @@ import matplotlib.pyplot as plt
 from Modelo import BRT
 
 # --- CONFIGURACOES INICIAIS ---
-h = 0.05             
-tempo_total = 240.0 # Aumentado para voce ter tempo de dirigir
+h = 0.05          
+tempo_total = 500.0 # Tempo aumentado para você explorar o mapa
 Meu_BRT = BRT()
 
-# Variavel global para o controle manual
-direcao_teclado = 0.0 
-sensibilidade = 1.0 # Quantos graus o volante vira a cada clique
+# Variaveis globais de controle
+volante = 0.0 
+velocidade_comando = 1.0 # Começa com 1 m/s
+volante_max = 20
+volante_min = -20
+
+sensibilidade_dir = 1.5  # Graus por clique
+sensibilidade_vel = 0.5  # m/s por clique
 
 # --- FUNCOES DE EVENTO ---
 def ao_pressionar(event):
-    global direcao_teclado
+    global volante, velocidade_comando
     if event.key == 'left':
-        direcao_teclado += sensibilidade
+        volante = min(volante + sensibilidade_dir, volante_max)
     elif event.key == 'right':
-        direcao_teclado -= sensibilidade
+        volante = max(volante - sensibilidade_dir, volante_min)
     elif event.key == 'up':
-        # Opcional: resetar direcao
-        direcao_teclado = 0.0
+        velocidade_comando += sensibilidade_vel
+    elif event.key == 'down':
+        velocidade_comando = max(0, velocidade_comando - sensibilidade_vel) # impede marcha ré negativa
+    elif event.key == ' ': # Barra de espaço para resetar direção
+        volante = 0.0
 
 # --- PREPARACAO DOS GRAFICOS ---
 plt.ion() 
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
-
-# Conectar o evento de teclado a janela
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 9))
 fig.canvas.mpl_connect('key_press_event', ao_pressionar)
 
-# Grafico 1: Trajetoria
+# Grafico 1: Trajetoria Global
 line_traj, = ax1.plot([], [], 'b-', label='Trajetoria BRT')
-ax1.set_title('Use as SETAS do teclado para guiar o BRT (UP para centralizar)')
-ax1.set_xlabel('X [m]')
-ax1.set_ylabel('Y [m]')
+ax1.set_title('CONTROLES: Setas (Esq/Dir) = Direção | Setas (Cima/Baixo) = Velocidade')
+ax1.set_xlabel('X Global [m]')
+ax1.set_ylabel('Y Global [m]')
+ax1.axis('equal')
 ax1.grid(True)
 
-# Grafico 2: Eixo Duplo
+# Grafico 2: Info de Performance
 ax2_twin = ax2.twinx()
-line_psi, = ax2.plot([], [], 'r-', label='Ang. Guinada psi(t)')
-line_ref, = ax2_twin.plot([], [], 'g--', label='Direcao Manual delta_f(t)')
+line_vel, = ax2.plot([], [], 'g-', label='Velocidade [m/s]')
+line_dir, = ax2_twin.plot([], [], 'r--', label='Esterçamento [°]')
 
 ax2.set_xlabel('Tempo [s]')
-ax2.set_ylabel('Guinada [Graus]', color='r')
-ax2_twin.set_ylabel('Comando Volante [Graus]', color='g')
+ax2.set_ylabel('Velocidade (m/s)', color='g')
+ax2_twin.set_ylabel('Ângulo Volante (°)', color='r')
 ax2.grid(True)
 
 plt.tight_layout()
 
 # --- LOOP DE SIMULACAO ---
 tms = 0.0
-posicao_x = 0.0
-historico_x, historico_y, historico_t, historico_psi, historico_ref = [], [], [], [], []
+pos_x, pos_y = 0.0, 0.0
+hist_x, hist_y, hist_t, hist_v, hist_d = [], [], [], [], []
 
-print("Simulacao Iniciada. Clique na janela do grafico e use as setas ESQUERDA/DIREITA.")
+print("Simulação Pronta!")
+print("SETAS LATERAIS: Curva | SETAS CIMA/BAIXO: Acelera/Freia | ESPAÇO: Alinha Rodas")
 
 while tms <= tempo_total:
-    vx_atual = 10.0 # Velocidade constante para facilitar o controle
+    # 1. Pegar entradas atuais
+    vx_atual = velocidade_comando
+    delta_f_rad = np.deg2rad(volante)
     
-    # O comando vem da variavel global alterada pelo teclado
-    delta_f_atual_deg = direcao_teclado
-    delta_f_rad = np.deg2rad(delta_f_atual_deg)
+    # 2. Passo de integração (Dinâmica Lateral)
+    # Note que se vx_atual for 0, o modelo pode ter singularidades dependendo da implementação
+    vx_safe = max(1, vx_atual) 
+    Meu_BRT.passo(vx_safe, delta_f_rad, h)
     
-    # Passo de integracao
-    Meu_BRT.passo(vx_atual, delta_f_rad, h)
-    posicao_x += vx_atual * h
+    # 3. Cinemática de Rotação (Referencial Global)
+    psi = Meu_BRT.psi
+    vy = Meu_BRT.y_dot
     
-    # Armazenar dados
-    historico_t.append(tms)
-    historico_x.append(posicao_x)
-    historico_y.append(Meu_BRT.y)
-    historico_psi.append(np.rad2deg(Meu_BRT.psi))
-    historico_ref.append(delta_f_atual_deg)
+    vx_glob = vx_atual * np.cos(psi) - vy * np.sin(psi)
+    vy_glob = vx_atual * np.sin(psi) + vy * np.cos(psi)
     
-    # Atualizar Graficos
-    if int(tms/h) % 5 == 0: # Atualizacao mais frequente para resposta rapida
-        line_traj.set_data(historico_x, historico_y)
-        line_psi.set_data(historico_t, historico_psi)
-        line_ref.set_data(historico_t, historico_ref)
+    pos_x += vx_glob * h
+    pos_y += vy_glob * h
+    
+    # 4. Históricos
+    hist_t.append(tms)
+    hist_x.append(pos_x)
+    hist_y.append(pos_y)
+    hist_v.append(vx_atual)
+    hist_d.append(volante)
+    
+    # 5. Update Visual (Otimizado)
+    if int(tms/h) % 10 == 0:
+        line_traj.set_data(hist_x, hist_y)
+        line_vel.set_data(hist_t, hist_v)
+        line_dir.set_data(hist_t, hist_d)
         
         ax1.relim()
         ax1.autoscale_view()
@@ -87,7 +104,7 @@ while tms <= tempo_total:
         ax2_twin.relim()
         ax2_twin.autoscale_view()
         
-        plt.pause(0.001)
+        plt.pause(0.0001)
     
     tms += h
 
