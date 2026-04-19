@@ -2,11 +2,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from Modelo import BRT
 from trajetoriasRef import *
+from PID import *
+
+# P mantido para força, D alto para frear o giro, I pequeno para trazer a zero no final
+pid_volante = PIDController(50, 0.01, 0.1, -20, 20)
 
 # --- PARAMETROS DE SIMULACAO ---
 tms = 0.0
 tempo_total = 120.0  
-h = 0.05             
+h = 0.01             
 
 # Inicialização das coordenadas no referencial GLOBAL (Fixo no solo)
 posicao_x_global = 0.0
@@ -18,7 +22,7 @@ Meu_BRT = BRT()
 # --- VETORES PARA ARMAZENAR DADOS ---
 tempovec = []
 y_local_vec, y_dot_local_vec = [], []
-psi_vec, psi_dot_vec = [], []
+psi_vec, psi_dot_vec,ref_vec = [], [], []
 x_global_vec, y_global_vec = [], []
 vx_vec, delta_f_vec = [] , []
 
@@ -26,8 +30,11 @@ vx_vec, delta_f_vec = [] , []
 while tms <= tempo_total:
     # 1. Definir Entradas
     vx_atual = 5.0 # Velocidade longitudinal [m/s]
+
     ref = trajetoria_y_referencia(posicao_x_global,'a')
-    delta_f_atual = np.deg2rad(ref) # Ângulo de esterçamento [rad]
+    
+    u = pid_volante.compute(ref,posicao_y_global,h)
+    delta_f_atual = np.deg2rad(u) # Ângulo de esterçamento [rad]
     
     # 2. Execução do passo de integração do Modelo Lateral (Dinâmica do Veículo)
     # Este passo calcula as variáveis de estado: y, y_dot, psi, psi_dot
@@ -52,6 +59,8 @@ while tms <= tempo_total:
     tempovec.append(tms)
     x_global_vec.append(posicao_x_global)
     y_global_vec.append(posicao_y_global)
+
+    ref_vec.append(ref)
     
     y_local_vec.append(Meu_BRT.y)
     y_dot_local_vec.append(Meu_BRT.y_dot)
@@ -115,10 +124,10 @@ plt.tight_layout()
 
 plt.figure(figsize=(10, 6))
 plt.plot(x_global_vec, y_global_vec, color='black', linewidth=2, label='Rastro do Veículo')
+plt.plot(x_global_vec, ref_vec, label='$\psi$ (Ref de Gunada)', color='red')
 plt.title('Trajetória do BRT no Referencial Fixo (Plano XY)')
 plt.xlabel('X Global [m]')
 plt.ylabel('Y Global [m]')
-plt.axis('equal') # Mantém a proporção 1:1 entre os eixos
 plt.grid(True, linestyle='--')
 plt.legend()
 
